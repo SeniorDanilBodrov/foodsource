@@ -1,4 +1,6 @@
-const API='http://127.0.0.1:8000';
+// Set window.FOODSOURCE_API on the hosting platform; localhost remains the
+// convenient default for local development.
+const API=(window.FOODSOURCE_API||'http://127.0.0.1:8000').replace(/\/$/,'');
 const state={suppliers:[],results:[],selected:new Set(),states:{},query:'',normalized:{},history:[],online:false};
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
