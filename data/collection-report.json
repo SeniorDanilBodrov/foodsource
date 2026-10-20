@@ -1,0 +1,21 @@
+{
+  "startedAt": "2026-10-20T19:59:23.704018+00:00",
+  "attempted": 30,
+  "imported": 30,
+  "automatic": 27,
+  "reviewed_metadata": [
+    {
+      "url": "https://uragrotex.ru/",
+      "reason": "robots.txt запрещает автоматический сбор с этой страницы"
+    },
+    {
+      "url": "https://imperiyavkusa96.ru/",
+      "reason": "robots.txt запрещает автоматический сбор с этой страницы"
+    },
+    {
+      "url": "https://dikoed.ru/horeca/",
+      "reason": "robots.txt запрещает автоматический сбор с этой страницы"
+    }
+  ],
+  "failures": []
+}
