@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="FoodSource — прототип сервиса поиска и сравнения поставщиков продуктов питания." />
+  <title>FoodSource — поиск поставщиков</title>
+  <link rel="icon" type="image/svg+xml" href="public/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="FoodSource">
+        <span class="brand-mark"><i></i><i></i><i></i></span>
+        <span>food<span>source</span></span>
+      </a>
+      <nav class="topnav"><a href="#results">Поставщики</a><button class="nav-button" id="qualityBtn">Качество данных</button><a href="#how-it-works">Как работает</a></nav>
+      <button class="button button-ghost" id="exportBtn">Экспорт XLSX <span>↗</span></button>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="eyebrow"><span class="pulse-dot"></span> B2B supplier intelligence</div>
+        <h1>Найдите поставщика,<br><em>с которым</em> стоит говорить.</h1>
+        <p class="hero-copy">FoodSource собирает рынок в одном окне: ищет по смыслу, показывает ключевые условия и помогает сравнить кандидатов до первого звонка.</p>
+        <form class="searchbar" id="searchForm">
+          <span class="search-icon">⌕</span>
+          <input id="queryInput" type="search" autocomplete="off" placeholder="Например: куриная грудка от 50 кг, Екатеринбург" />
+          <button class="button button-primary" type="submit">Найти поставщиков <span>→</span></button>
+        </form>
+        <div class="examples"><span>Попробуйте:</span><button data-example="овощи и зелень, Екатеринбург">овощи · Екатеринбург</button><button data-example="упаковка для доставки, Москва">упаковка · Москва</button><button data-example="лосось с доставкой">лосось · доставка</button></div>
+        <div class="recent-searches hidden" id="recentSearches" aria-label="Недавние запросы"></div>
+      </section>
+
+      <section class="metric-strip" aria-label="Результаты поиска">
+        <div><strong id="resultCount">0</strong><span id="resultCountLabel">поставщиков в каталоге</span></div>
+        <div><strong id="selectedCount">0</strong><span>в сравнении</span></div>
+        <button type="button" class="metric-button" id="savedMetric"><strong id="savedCount">0</strong><span>сохранено вами</span></button>
+        <div class="metric-note"><span class="live-dot"></span> проверенные публичные источники · обновлены сегодня</div>
+      </section>
+
+      <div class="workspace" id="results">
+        <aside class="sidebar">
+          <div class="filter-heading"><span>Фильтры</span><button id="resetFilters">Сбросить</button></div>
+          <label class="field-label" for="categoryFilter">Категория</label>
+          <select class="select" id="categoryFilter"><option value="">Все категории</option></select>
+          <label class="field-label" for="regionFilter">Город / регион</label>
+          <select class="select" id="regionFilter"><option value="">Все регионы</option></select>
+          <label class="field-label" for="typeFilter">Тип поставщика</label>
+          <select class="select" id="typeFilter"><option value="">Все типы</option></select>
+          <label class="check-row"><input type="checkbox" id="deliveryFilter"><span class="checkmark"></span><span>Есть доставка</span></label>
+          <label class="check-row"><input type="checkbox" id="certificatesFilter"><span class="checkmark"></span><span>Есть документы</span></label>
+          <label class="check-row"><input type="checkbox" id="minimumOrderFilter"><span class="checkmark"></span><span>Указан минимум заказа</span></label>
+          <label class="check-row"><input type="checkbox" id="contactFilter"><span class="checkmark"></span><span>Есть контакт</span></label>
+          <label class="check-row"><input type="checkbox" id="favoritesFilter"><span class="checkmark"></span><span>Только избранное</span></label>
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-caption">Сценарий пользователя</div>
+          <div class="mini-flow"><span>01</span><p>Опишите закупку<br><small>обычным языком</small></p></div>
+          <div class="flow-line"></div>
+          <div class="mini-flow"><span>02</span><p>Сузьте выдачу<br><small>фильтрами и регионом</small></p></div>
+          <div class="flow-line"></div>
+          <div class="mini-flow"><span>03</span><p>Сравните условия<br><small>и выберите контакт</small></p></div>
+          <div class="parser-box">
+            <div class="sidebar-caption">Подключить источник</div>
+            <p>Добавьте публичную страницу поставщика — Python-парсер извлечёт базовые данные и сохранит их в каталог.</p>
+            <form id="parserForm"><input id="parserUrl" type="url" placeholder="https://supplier.ru" required><button class="button button-primary" type="submit">Разобрать страницу</button></form>
+            <button class="button button-outline collect-button" id="collectBtn" type="button">Обновить проверенные источники</button>
+            <small id="parserStatus">API: проверяем доступность…</small>
+            <div class="import-box">
+              <div class="sidebar-caption">Импорт от оператора</div>
+              <p>Загрузите CSV или XLSX до 5 МБ. Нужна колонка «Поставщик» или «Название»; остальные поля можно оставить пустыми.</p>
+              <input id="importFile" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <div class="import-actions"><button class="button button-outline" id="downloadTemplateBtn" type="button">Шаблон CSV</button><button class="button button-primary" id="importBtn" type="button">Импортировать</button></div>
+              <small id="importStatus"></small>
+            </div>
+          </div>
+        </aside>
+
+        <section class="results-area">
+          <div class="results-toolbar">
+            <div><span class="section-kicker">Каталог</span><h2 id="resultsTitle">Поставщики в каталоге</h2><div id="queryChips" class="query-chips"></div></div>
+            <label class="sort-label">Сортировка<select class="select sort-select" id="sortSelect"><option value="match">По релевантности</option><option value="completeness">По полноте данных</option><option value="contact">По наличию контакта</option><option value="region">По региону</option><option value="name">По названию</option></select></label>
+          </div>
+          <div id="resultsList" class="results-list"></div>
+          <div id="emptyState" class="empty-state hidden"><div class="empty-icon">⌕</div><h3>По этому запросу пока пусто</h3><p>Попробуйте убрать регион или сформулировать запрос шире.</p><button class="button button-outline" id="clearSearch">Показать всех</button></div>
+        </section>
+      </div>
+    </main>
+
+    <section class="how-section" id="how-it-works"><div><span class="section-kicker">Принцип работы</span><h2>От запроса к решению<br>за несколько минут.</h2></div><div class="how-grid"><article><b>01</b><h3>Понимает контекст</h3><p>Вы пишете «нужна упаковка для доставки», а сервис выделяет категорию, регион и важные условия.</p></article><article><b>02</b><h3>Объясняет выдачу</h3><p>У каждой карточки есть причины совпадения — не чёрный ящик, а понятная логика ранжирования.</p></article><article><b>03</b><h3>Помогает выбрать</h3><p>Сравните 2–4 компании, сохраните заметку и следующий шаг прямо в карточке.</p></article></div></section>
+
+    <footer class="footer"><span>FoodSource / product discovery prototype</span><span>Сделано для тестового задания · 2026</span></footer>
+  </div>
+
+  <div class="modal-backdrop hidden" id="detailModal"><div class="modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div id="detailContent"></div></div></div>
+  <div class="modal-backdrop hidden" id="compareModal"><div class="modal compare-modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div class="modal-eyebrow">SHORTLIST · <span id="compareModalCount">0</span> поставщика</div><h2>Сравнение условий</h2><div id="compareContent"></div></div></div>
+  <div class="modal-backdrop hidden" id="qualityModal"><div class="modal compare-modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div class="modal-eyebrow">SOURCE AUDIT</div><h2>Качество данных</h2><div id="qualityContent"></div></div></div>
+  <button class="compare-dock hidden" id="compareDock"><span><b id="dockCount">0</b> поставщика в сравнении</span><span>Открыть сравнение →</span></button>
+  <script src="app.js"></script>
+</body>
+</html>

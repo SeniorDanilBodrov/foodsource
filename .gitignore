@@ -1,0 +1,11 @@
+.venv/
+node_modules/
+tmp/
+__pycache__/
+*.pyc
+data/*.sqlite3
+data/exports/
+.env
+.env.*
+!.env.example
+*.log
