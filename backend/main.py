@@ -1,4 +1,5 @@
 import asyncio
+import os
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -65,6 +66,8 @@ async def run_collection_job() -> None:
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    if os.getenv("FOODSOURCE_PREWARM", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        semantic_engine.prewarm(list_suppliers())
 
 
 @app.get("/api/health")

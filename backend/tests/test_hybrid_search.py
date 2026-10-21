@@ -21,6 +21,14 @@ class HybridSearchTests(unittest.TestCase):
         self.assertTrue(status["available"], status)
         self.assertEqual(status["mode"], "hybrid")
 
+    def test_prewarm_reuses_supplier_embeddings(self) -> None:
+        warmed = semantic_engine.prewarm(self.items)
+        cached = warmed["cached_documents"]
+        self.assertGreater(cached, len(self.items))
+
+        semantic_engine.score("пластиковые боксы для еды", self.items[:6])
+        self.assertEqual(semantic_engine.status()["cached_documents"], cached)
+
     def test_empty_query_is_catalogue_without_fake_percentage(self) -> None:
         normalized, items = search(self.items, "", {})
         self.assertEqual(len(items), 30)

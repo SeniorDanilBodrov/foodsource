@@ -12,3 +12,5 @@ services:
         value: "1"
       - key: FOODSOURCE_MODEL_DIR
         value: /opt/render/project/src/models/rubert-tiny2
+      - key: FOODSOURCE_PREWARM
+        value: "1"

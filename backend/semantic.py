@@ -57,9 +57,8 @@ class SemanticEngine:
         self._tokenizer = None
         self._error = ""
         self._model_name = "rubert-tiny2-int8"
-        self._cache_key: tuple[tuple[str, str], ...] = ()
-        self._cache_vectors = None
-        self._cache_owners: list[str] = []
+        self._chunk_vectors: dict[str, object] = {}
+        self._query_vectors: dict[str, object] = {}
         self._lock = threading.Lock()
 
     @property
@@ -115,6 +114,7 @@ class SemanticEngine:
             "model": self._model_name if self._session is not None else None,
             "mode": "hybrid" if self._session is not None else "deterministic",
             "error": self._error or None,
+            "cached_documents": len(self._chunk_vectors),
         }
 
     def _encode(self, texts: Iterable[str]):
@@ -135,6 +135,39 @@ class SemanticEngine:
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
         return vectors / np.clip(norms, 1e-12, None)
 
+    def _document_vectors(self, suppliers: list[dict]):
+        """Reuse chunk embeddings across searches with different candidate pools."""
+        import numpy as np
+
+        texts: list[str] = []
+        owners: list[str] = []
+        for supplier in suppliers:
+            supplier_id = str(supplier.get("id", ""))
+            chunks = supplier_chunks(supplier)
+            texts.extend(chunks)
+            owners.extend([supplier_id] * len(chunks))
+
+        with self._lock:
+            missing = list(dict.fromkeys(text for text in texts if text not in self._chunk_vectors))
+        # Small batches keep peak memory predictable on the free Render instance.
+        for start in range(0, len(missing), 16):
+            batch = missing[start:start + 16]
+            vectors = self._encode(batch)
+            with self._lock:
+                self._chunk_vectors.update(zip(batch, vectors))
+        with self._lock:
+            return np.stack([self._chunk_vectors[text] for text in texts]), owners
+
+    def prewarm(self, suppliers: list[dict]) -> dict:
+        """Build the supplier cache before the service accepts search traffic."""
+        if not suppliers or not self.ensure_loaded():
+            return self.status()
+        try:
+            self._document_vectors(suppliers)
+        except Exception as exc:
+            self._error = str(exc)
+        return self.status()
+
     def score(self, query: str, suppliers: list[dict]) -> dict[str, float]:
         """Return cosine similarity by supplier id, or an empty map on fallback."""
         query = " ".join(query.split()).strip()
@@ -151,23 +184,16 @@ class SemanticEngine:
         ]
         if not any(not token.startswith("##") and len(token) >= 4 for token in content_tokens):
             return {}
-        cache_key = tuple((str(item.get("id", "")), supplier_document(item)) for item in suppliers)
         try:
+            document_vectors, owners = self._document_vectors(suppliers)
             with self._lock:
-                if cache_key != self._cache_key or self._cache_vectors is None:
-                    texts: list[str] = []
-                    owners: list[str] = []
-                    for supplier in suppliers:
-                        supplier_id = str(supplier.get("id", ""))
-                        chunks = supplier_chunks(supplier)
-                        texts.extend(chunks)
-                        owners.extend([supplier_id] * len(chunks))
-                    self._cache_vectors = self._encode(texts)
-                    self._cache_owners = owners
-                    self._cache_key = cache_key
-                document_vectors = self._cache_vectors
-                owners = self._cache_owners
-            query_vector = self._encode([query])[0]
+                query_vector = self._query_vectors.get(query)
+            if query_vector is None:
+                query_vector = self._encode([query])[0]
+                with self._lock:
+                    if len(self._query_vectors) >= 256:
+                        self._query_vectors.pop(next(iter(self._query_vectors)))
+                    self._query_vectors[query] = query_vector
             similarities = document_vectors @ query_vector
             result: dict[str, float] = {}
             for supplier_id, similarity in zip(owners, similarities):
