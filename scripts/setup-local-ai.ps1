@@ -45,4 +45,3 @@ finally {
 }
 
 Write-Host "Local AI search is ready. Run: .\.venv-ai\Scripts\python.exe -m backend.run"
-

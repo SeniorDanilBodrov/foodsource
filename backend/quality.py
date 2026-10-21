@@ -85,4 +85,3 @@ def assess_supplier(item: dict) -> tuple[dict, dict]:
     }
     safe["data_quality"] = report
     return safe, report
-
