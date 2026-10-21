@@ -1,8 +1,4 @@
 import asyncio
-import json
-import shutil
-import subprocess
-import sys
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -23,6 +19,7 @@ from .models import (CompareRequest, ExportRequest, ImportFileRequest, ImportReq
 from .parsers.generic import parse_supplier
 from .search import missing_fields, search
 from .semantic import semantic_engine
+from .xlsx_export import export_suppliers_xlsx
 
 app = FastAPI(title="FoodSource API", version="0.1.0", description="Поиск и сбор данных о поставщиках продуктов питания")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -180,20 +177,12 @@ def export_xlsx(request: ExportRequest, background_tasks: BackgroundTasks):
     export_dir = project_root / "data" / "exports"
     export_dir.mkdir(parents=True, exist_ok=True)
     token = uuid.uuid4().hex
-    request_path = export_dir / f"request-{token}.json"
     output_path = export_dir / f"foodsource-selection-{date.today().isoformat()}-{token[:8]}.xlsx"
-    request_path.write_text(json.dumps({"title": "Выборка поставщиков FoodSource", "generatedAt": date.today().isoformat(), "suppliers": items}, ensure_ascii=False), encoding="utf-8")
-    node = shutil.which("node")
-    if not node:
-        request_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="Node.js не найден: экспорт XLSX недоступен")
     try:
-        subprocess.run([node, str(project_root / "backend" / "export_xlsx.mjs"), str(request_path), str(output_path)], cwd=project_root, check=True, capture_output=True, text=True, timeout=30)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        request_path.unlink(missing_ok=True)
+        export_suppliers_xlsx(items, output_path)
+    except Exception as exc:
         output_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=f"Не удалось сформировать XLSX: {getattr(exc, 'stderr', '') or exc}") from exc
-    request_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Не удалось сформировать XLSX: {exc}") from exc
     background_tasks.add_task(output_path.unlink, missing_ok=True)
     return FileResponse(output_path, filename="foodsource-selection.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", background=background_tasks)
 
