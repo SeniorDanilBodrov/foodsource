@@ -13,12 +13,15 @@ from fastapi.responses import FileResponse
 from .collector import collect_sources
 from .database import (delete_fixture_suppliers, get_state, get_supplier, init_db,
                        list_categories, list_states, list_suppliers, list_types,
-                       list_search_history, clear_search_history, record_search, update_state, upsert_many)
+                       list_search_history, clear_search_history, record_search,
+                       update_state, upsert_many, safe_upsert,
+                       list_pending_updates, resolve_pending_update)
 from .importers import parse_import_file
 from .models import (CompareRequest, ExportRequest, ImportFileRequest, ImportRequest,
                      ParseRequest, SearchRequest, SupplierStateUpdate)
 from .parsers.generic import parse_supplier
 from .search import missing_fields, search
+from .semantic import semantic_engine
 
 app = FastAPI(title="FoodSource API", version="0.1.0", description="Поиск и сбор данных о поставщиках продуктов питания")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -31,7 +34,18 @@ def startup() -> None:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "service": "foodsource-api"}
+    return {
+        "status": "ok",
+        "service": "foodsource-api",
+        "search": semantic_engine.status(load=True),
+        "query_understanding": {
+            "ontology": "foodsource-domain-v1",
+            "typo_correction": "rapidfuzz",
+            "morphology": "pymorphy3",
+            "strict_category_guardrails": True,
+            "explainable_ranking": True,
+        },
+    }
 
 
 @app.get("/api/suppliers")
@@ -52,7 +66,19 @@ def supplier(supplier_id: str) -> dict:
 def supplier_search(request: SearchRequest) -> dict:
     normalized, items = search(list_suppliers(), request.query, request.filters.model_dump())
     record_search(request.query, normalized, request.filters.model_dump(), len(items))
-    return {"query": request.query, "normalized_query": normalized, "items": items, "count": len(items)}
+    return {
+        "query": request.query,
+        "normalized_query": normalized,
+        "search": semantic_engine.status(),
+        "items": items,
+        "count": len(items),
+    }
+
+
+@app.get("/api/search/status")
+def search_status() -> dict:
+    """Expose the active search engine for local diagnostics and the UI."""
+    return semantic_engine.status(load=True)
 
 
 @app.get("/api/search-history")
@@ -143,15 +169,37 @@ def data_quality() -> dict:
     except FileNotFoundError:
         report = None
     cards = [{"id": item["id"], "name": item["name"], "updated": item.get("updated", ""), "completeness": item.get("completeness", 0), "missing_fields": missing_fields(item), "source": item.get("source", "")} for item in items]
-    return {"total": len(items), "average_completeness": round(sum(item.get("completeness", 0) for item in items) / len(items)) if items else 0, "suppliers": cards, "last_collection": report}
+    pending = list_pending_updates()
+    return {"total": len(items), "average_completeness": round(sum(item.get("completeness", 0) for item in items) / len(items)) if items else 0, "suppliers": cards, "last_collection": report, "pending_updates": pending, "pending_count": len(pending)}
+
+
+@app.get("/api/pending-updates")
+def pending_updates() -> dict:
+    items = list_pending_updates()
+    return {"items": items, "count": len(items)}
+
+
+@app.post("/api/pending-updates/{review_id}/approve")
+def approve_pending_update(review_id: int) -> dict:
+    result = resolve_pending_update(review_id, approve=True)
+    if not result:
+        raise HTTPException(status_code=404, detail="Обновление не найдено или уже обработано")
+    return result
+
+
+@app.post("/api/pending-updates/{review_id}/reject")
+def reject_pending_update(review_id: int) -> dict:
+    result = resolve_pending_update(review_id, approve=False)
+    if not result:
+        raise HTTPException(status_code=404, detail="Обновление не найдено или уже обработано")
+    return result
 
 
 @app.post("/api/parse")
 async def parse(request: ParseRequest) -> dict:
     try:
         item = await parse_supplier(str(request.url), request.category, request.region)
-        upsert_many([item])
-        return {"item": item}
+        return safe_upsert(item, source_mode="manual_parse")
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Не удалось разобрать страницу: {exc}") from exc
 

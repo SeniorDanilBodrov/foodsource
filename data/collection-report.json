@@ -1,8 +1,8 @@
 {
-  "startedAt": "2026-10-20T19:59:23.704018+00:00",
+  "startedAt": "2026-10-21T13:20:00.272761+00:00",
   "attempted": 30,
   "imported": 30,
-  "automatic": 27,
+  "automatic": 26,
   "reviewed_metadata": [
     {
       "url": "https://uragrotex.ru/",
@@ -17,5 +17,10 @@
       "reason": "robots.txt запрещает автоматический сбор с этой страницы"
     }
   ],
-  "failures": []
+  "failures": [
+    {
+      "url": "https://b2b.efko.ru/",
+      "error": ""
+    }
+  ]
 }

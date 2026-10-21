@@ -2,11 +2,13 @@
 import json
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import date
 from hashlib import sha1
 from pathlib import Path
 
 from .models import Supplier
+from .quality import assess_supplier, confidence_rank
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "foodsource.sqlite3"
@@ -16,13 +18,18 @@ PHONE_PATTERN = re.compile(r"\+?\d[\d\s()\-]{8,}\d")
 EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.[a-z]{2,}", re.I)
 
 
-def connect() -> sqlite3.Connection:
+@contextmanager
+def connect():
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        yield connection
+    finally:
+        connection.close()
 
 
 def init_db() -> None:
+    should_seed = False
     with connect() as db:
         db.execute("""CREATE TABLE IF NOT EXISTS suppliers (
           id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL,
@@ -38,8 +45,19 @@ def init_db() -> None:
           normalized_query TEXT NOT NULL, filters TEXT NOT NULL,
           results_count INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )""")
-        if db.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0] == 0:
-            upsert_many(reviewed_source_seed())
+        db.execute("""CREATE TABLE IF NOT EXISTS pending_supplier_updates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_id TEXT NOT NULL,
+          source_url TEXT NOT NULL DEFAULT '', current_payload TEXT NOT NULL DEFAULT '{}',
+          candidate_payload TEXT NOT NULL, reasons TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')), reviewed_at TEXT
+        )""")
+        db.execute("""CREATE INDEX IF NOT EXISTS idx_pending_supplier_status
+          ON pending_supplier_updates(status, supplier_id)""")
+        should_seed = db.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0] == 0
+        db.commit()
+    if should_seed:
+        upsert_many(reviewed_source_seed())
     # Safe id migration for databases created by an earlier collector version.
     migrate_legacy_reviewed_cards()
     backfill_supplier_fields()
@@ -121,6 +139,139 @@ def upsert_many(items: list[dict]) -> int:
             )
         db.commit()
     return len(items)
+
+
+PROTECTED_AUTOMATIC_FIELDS = {
+    "name", "description", "categories", "products", "regions", "city",
+    "phone", "email", "address", "delivery", "certificates",
+}
+
+
+def _queue_review(item: dict, current: dict | None, reasons: list[str]) -> int:
+    with connect() as db:
+        db.execute(
+            "DELETE FROM pending_supplier_updates WHERE supplier_id=? AND status='pending'",
+            (item["id"],),
+        )
+        cursor = db.execute(
+            """INSERT INTO pending_supplier_updates
+            (supplier_id, source_url, current_payload, candidate_payload, reasons)
+            VALUES(?,?,?,?,?)""",
+            (
+                item["id"], item.get("source_url") or item.get("source") or item.get("website", ""),
+                json.dumps(current or {}, ensure_ascii=False),
+                json.dumps(item, ensure_ascii=False),
+                json.dumps(reasons, ensure_ascii=False),
+            ),
+        )
+        db.commit()
+        return int(cursor.lastrowid)
+
+
+def safe_upsert(item: dict, source_mode: str = "automatic") -> dict:
+    """Apply validated fields and quarantine uncertain destructive changes."""
+    original = normalize_supplier_fields(item)
+    safe, report = assess_supplier(original)
+    source = safe.get("source_url") or safe.get("source") or safe.get("website", "")
+    current = None
+    if source:
+        normalized_source = source.rstrip("/")
+        current = next(
+            (existing for existing in list_suppliers()
+             if (existing.get("source_url") or existing.get("source") or existing.get("website", "")).rstrip("/") == normalized_source),
+            None,
+        )
+    if current:
+        safe["id"] = current["id"]
+        original["id"] = current["id"]
+
+    review_reasons = [f"{warning['field']}: {warning['reason']}" for warning in report["warnings"]]
+    accepted = dict(safe)
+    if current:
+        incoming_confidence = safe.get("field_confidence", {})
+        current_confidence = current.get("field_confidence", {})
+        accepted_confidence = dict(incoming_confidence)
+        for field in PROTECTED_AUTOMATIC_FIELDS:
+            old_value, new_value = current.get(field), safe.get(field)
+            if new_value in (None, "", [], {}) or old_value in (None, "", [], {}) or new_value == old_value:
+                continue
+            incoming_rank = confidence_rank(incoming_confidence.get(field, "medium"))
+            current_rank = confidence_rank(current_confidence.get(field, "high" if current.get("collection_mode") in {"reviewed_metadata", "operator_import"} else "medium"))
+            if incoming_rank < current_rank or (source_mode == "automatic" and incoming_rank < 3):
+                accepted[field] = old_value
+                if field in current_confidence:
+                    accepted_confidence[field] = current_confidence[field]
+                review_reasons.append(f"{field}: новое значение не заменило более надёжное")
+        accepted["field_confidence"] = accepted_confidence
+
+    accepted["review_required"] = bool(review_reasons)
+    accepted["collection_mode"] = source_mode
+    upsert_many([accepted])
+    if review_reasons:
+        review_id = _queue_review(original, current, review_reasons)
+    else:
+        review_id = None
+        with connect() as db:
+            db.execute(
+                "UPDATE pending_supplier_updates SET status='superseded', reviewed_at=datetime('now') "
+                "WHERE supplier_id=? AND status='pending'",
+                (accepted["id"],),
+            )
+            db.commit()
+    return {
+        "item": accepted,
+        "review_required": bool(review_reasons),
+        "review_id": review_id,
+        "warnings": review_reasons,
+    }
+
+
+def safe_upsert_many(items: list[dict], source_mode: str = "automatic") -> dict:
+    results = [safe_upsert(item, source_mode=source_mode) for item in items]
+    return {
+        "imported": len(results),
+        "pending_review": sum(result["review_required"] for result in results),
+        "results": results,
+    }
+
+
+def list_pending_updates(limit: int = 50) -> list[dict]:
+    with connect() as db:
+        rows = db.execute(
+            """SELECT id, supplier_id, source_url, current_payload, candidate_payload,
+            reasons, status, created_at FROM pending_supplier_updates
+            WHERE status='pending' ORDER BY id DESC LIMIT ?""",
+            (max(1, min(limit, 200)),),
+        ).fetchall()
+    return [{
+        "id": row["id"], "supplier_id": row["supplier_id"], "source_url": row["source_url"],
+        "current": json.loads(row["current_payload"]),
+        "candidate": json.loads(row["candidate_payload"]),
+        "reasons": json.loads(row["reasons"]), "status": row["status"],
+        "created_at": row["created_at"],
+    } for row in rows]
+
+
+def resolve_pending_update(review_id: int, approve: bool) -> dict | None:
+    with connect() as db:
+        row = db.execute(
+            "SELECT * FROM pending_supplier_updates WHERE id=? AND status='pending'", (review_id,)
+        ).fetchone()
+    if not row:
+        return None
+    if approve:
+        candidate = json.loads(row["candidate_payload"])
+        candidate["review_required"] = False
+        candidate["collection_mode"] = "operator_reviewed"
+        upsert_many([candidate])
+    status = "approved" if approve else "rejected"
+    with connect() as db:
+        db.execute(
+            "UPDATE pending_supplier_updates SET status=?, reviewed_at=datetime('now') WHERE id=?",
+            (status, review_id),
+        )
+        db.commit()
+    return {"id": review_id, "status": status}
 
 
 def backfill_supplier_fields() -> int:

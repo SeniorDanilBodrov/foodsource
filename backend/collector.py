@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .database import migrate_legacy_reviewed_cards, upsert_many
+from .database import migrate_legacy_reviewed_cards, safe_upsert_many
 from .parsers.generic import parse_supplier
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +27,11 @@ def merge_collected(item: dict, source: dict) -> dict:
     item["regions"] = list(dict.fromkeys(item.get("regions", []) + [source["region"]]))
     item["source"] = source["url"]
     item["website"] = source["url"]
+    confidence = item.setdefault("field_confidence", {})
+    confidence["categories"] = "high"
+    confidence["regions"] = "high"
+    for key in overrides:
+        confidence[key] = "high"
     return item
 
 
@@ -78,14 +83,16 @@ async def collect_sources() -> dict:
                 failures.append({"url": source["url"], "error": message})
         if index < len(sources) - 1:
             await asyncio.sleep(2)
+    safe_result = {"imported": 0, "pending_review": 0}
     if items:
-        upsert_many(list(items.values()))
+        safe_result = safe_upsert_many(list(items.values()), source_mode="automatic")
         migrate_legacy_reviewed_cards()
     report = {
         "startedAt": datetime.now(timezone.utc).isoformat(),
         "attempted": len(sources),
         "imported": len(items),
         "automatic": len(automatic),
+        "pending_review": safe_result["pending_review"],
         "reviewed_metadata": reviewed,
         "failures": failures,
     }

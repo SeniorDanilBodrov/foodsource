@@ -1,0 +1,105 @@
+import sqlite3
+import tempfile
+import unittest
+from pathlib import Path
+
+from backend import database
+from backend.quality import assess_supplier
+
+
+class QualityAssessmentTests(unittest.TestCase):
+    def test_price_fragment_cannot_be_published_as_address(self):
+        safe, report = assess_supplier({
+            "name": "Лента PRO",
+            "address": "ы и предприятия 325,00 ₽/шт",
+            "phone": "8 800 700 4 113",
+        })
+
+        self.assertEqual(safe["address"], "")
+        self.assertEqual(report["status"], "review")
+        self.assertTrue(any(item["field"] == "address" for item in report["warnings"]))
+
+    def test_navigation_noise_is_not_used_as_description(self):
+        safe, report = assess_supplier({
+            "name": "Поставщик",
+            "description": "Каталог Каталог Контакты Контакты Личный кабинет Корзина",
+        })
+
+        self.assertEqual(safe["description"], "")
+        self.assertEqual(report["status"], "review")
+
+
+class SafeUpsertTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_db_path = database.DB_PATH
+        database.DB_PATH = Path(self.temp_dir.name) / "quality.sqlite3"
+        db = sqlite3.connect(database.DB_PATH)
+        try:
+            db.execute("""CREATE TABLE suppliers (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )""")
+            db.execute("""CREATE TABLE pending_supplier_updates (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_id TEXT NOT NULL,
+              source_url TEXT NOT NULL DEFAULT '', current_payload TEXT NOT NULL DEFAULT '{}',
+              candidate_payload TEXT NOT NULL, reasons TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'pending',
+              created_at TEXT NOT NULL DEFAULT (datetime('now')), reviewed_at TEXT
+            )""")
+            db.commit()
+        finally:
+            db.close()
+
+    def tearDown(self):
+        database.DB_PATH = self.original_db_path
+        self.temp_dir.cleanup()
+
+    @staticmethod
+    def supplier(description: str, confidence: str) -> dict:
+        return {
+            "id": "web-test", "name": "Тестовый поставщик", "source": "https://supplier.example",
+            "website": "https://supplier.example", "description": description,
+            "categories": ["Овощи и фрукты"], "products": ["Персики"],
+            "regions": ["Россия"], "city": "Россия", "phone": "+7 999 000-00-00",
+            "email": "hello@supplier.example", "address": "ул. Ленина, д. 1",
+            "collection_mode": "operator_import",
+            "field_confidence": {"description": confidence, "categories": "high", "products": "high"},
+        }
+
+    def test_automatic_medium_confidence_change_waits_for_review(self):
+        database.upsert_many([self.supplier("Проверенное описание", "high")])
+        candidate = self.supplier("Новое автоматически извлечённое описание", "medium")
+
+        result = database.safe_upsert(candidate, source_mode="automatic")
+        stored = database.list_suppliers()[0]
+        pending = database.list_pending_updates()
+
+        self.assertTrue(result["review_required"])
+        self.assertEqual(stored["description"], "Проверенное описание")
+        self.assertEqual(stored["field_confidence"]["description"], "high")
+        self.assertEqual(len(pending), 1)
+        self.assertIn("description", " ".join(pending[0]["reasons"]))
+
+    def test_operator_can_approve_or_reject_pending_change(self):
+        database.upsert_many([self.supplier("Старое описание", "high")])
+        first = database.safe_upsert(
+            self.supplier("Описание после ручной проверки", "medium"), source_mode="automatic"
+        )
+        approved = database.resolve_pending_update(first["review_id"], approve=True)
+
+        self.assertEqual(approved["status"], "approved")
+        self.assertEqual(database.list_suppliers()[0]["description"], "Описание после ручной проверки")
+
+        second = database.safe_upsert(
+            self.supplier("Ещё одно сомнительное описание", "medium"), source_mode="automatic"
+        )
+        rejected = database.resolve_pending_update(second["review_id"], approve=False)
+
+        self.assertEqual(rejected["status"], "rejected")
+        self.assertEqual(database.list_suppliers()[0]["description"], "Описание после ручной проверки")
+        self.assertEqual(database.list_pending_updates(), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

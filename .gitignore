@@ -1,5 +1,7 @@
 .venv/
+.venv-ai/
 node_modules/
+models/
 tmp/
 __pycache__/
 *.pyc

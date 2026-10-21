@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Рабочая воронка поставщиков FoodSource." />
+  <title>Моя работа — FoodSource</title>
+  <link rel="icon" type="image/svg+xml" href="public/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=20261021f" />
+  <link rel="stylesheet" href="pipeline.css?v=20261021a" />
+</head>
+<body>
+  <div class="app-shell pipeline-shell">
+    <header class="topbar">
+      <a class="brand" href="index.html" aria-label="FoodSource"><span class="brand-mark"><i></i><i></i><i></i></span><span>food<span>source</span></span></a>
+      <nav class="topnav pipeline-nav"><a href="index.html">Каталог</a><a class="active" href="pipeline.html">Моя работа</a></nav>
+      <a class="button button-ghost back-catalog" href="index.html">← В каталог</a>
+    </header>
+
+    <main>
+      <section class="pipeline-hero">
+        <div><div class="eyebrow"><span class="pulse-dot"></span> Supplier workflow</div><h1>Поставщики<br><em>в работе.</em></h1><p>Здесь собраны компании, которым вы назначили статус, добавили заметку или сохранили в избранное.</p></div>
+        <div class="pipeline-total liquid-glass"><strong id="trackedCount">0</strong><span>поставщиков в воронке</span></div>
+      </section>
+
+      <section class="pipeline-toolbar liquid-glass" aria-label="Управление воронкой">
+        <label class="pipeline-search"><span>⌕</span><input id="pipelineSearch" type="search" placeholder="Найти в моей работе" autocomplete="off"></label>
+        <label><span>Сортировка</span><select id="pipelineSort"><option value="updated">Недавно изменённые</option><option value="name">По названию</option><option value="region">По региону</option></select></label>
+        <label class="pipeline-favourite"><input id="pipelineFavourite" type="checkbox"><span>Только избранное</span></label>
+      </section>
+
+      <div class="stage-tabs" id="stageTabs" aria-label="Статусы поставщиков"></div>
+      <section class="pipeline-board" id="pipelineBoard" aria-live="polite"></section>
+      <div class="pipeline-empty hidden" id="pipelineEmpty"><div>◎</div><h2>Воронка пока пустая</h2><p>Вернитесь в каталог и измените статус поставщика — он сразу появится здесь.</p><a class="button button-primary" href="index.html">Перейти в каталог</a></div>
+    </main>
+    <footer class="footer"><span>FoodSource / supplier workflow</span><span>Статусы сохраняются в SQLite</span></footer>
+  </div>
+  <script src="config.js?v=20261021e"></script>
+  <script src="pipeline.js?v=20261021a"></script>
+</body>
+</html>

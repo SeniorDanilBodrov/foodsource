@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20261021g" />
 </head>
 <body>
   <div class="app-shell">
@@ -18,7 +18,9 @@
         <span class="brand-mark"><i></i><i></i><i></i></span>
         <span>food<span>source</span></span>
       </a>
-      <nav class="topnav"><a href="#results">Поставщики</a><button class="nav-button" id="qualityBtn">Качество данных</button><a href="#how-it-works">Как работает</a></nav>
+      <nav class="topnav"><a href="#results">Поставщики</a><a href="pipeline.html">Моя работа</a><button class="nav-button" id="qualityBtn">Качество данных</button><a href="#how-it-works">Как работает</a></nav>
+      <a class="workflow-shortcut" href="pipeline.html">В работе →</a>
+      <button class="workflow-shortcut mobile-quality-shortcut" id="mobileQualityBtn" type="button">Качество</button>
       <button class="button button-ghost" id="exportBtn">Экспорт XLSX <span>↗</span></button>
     </header>
 
@@ -44,8 +46,8 @@
       </section>
 
       <div class="workspace" id="results">
-        <aside class="sidebar">
-          <div class="filter-heading"><span>Фильтры</span><button id="resetFilters">Сбросить</button></div>
+        <aside class="sidebar" id="filtersPanel" aria-label="Фильтры каталога">
+          <div class="filter-heading"><span>Фильтры</span><div class="filter-heading-actions"><button id="resetFilters">Сбросить</button><button class="filter-close" id="closeFilters" type="button" aria-label="Закрыть фильтры">×</button></div></div>
           <label class="field-label" for="categoryFilter">Категория</label>
           <select class="select" id="categoryFilter"><option value="">Все категории</option></select>
           <label class="field-label" for="regionFilter">Город / регион</label>
@@ -78,11 +80,13 @@
               <small id="importStatus"></small>
             </div>
           </div>
+          <button class="button button-primary mobile-filter-apply" id="showMobileResults" type="button">Показать <span id="mobileResultCount">0</span> поставщиков</button>
         </aside>
 
         <section class="results-area">
           <div class="results-toolbar">
             <div><span class="section-kicker">Каталог</span><h2 id="resultsTitle">Поставщики в каталоге</h2><div id="queryChips" class="query-chips"></div></div>
+            <button class="mobile-filter-button liquid-glass" id="mobileFiltersToggle" type="button" aria-controls="filtersPanel" aria-expanded="false"><span>Фильтры</span><b id="activeFilterCount">0</b></button>
             <label class="sort-label">Сортировка<select class="select sort-select" id="sortSelect"><option value="match">По релевантности</option><option value="completeness">По полноте данных</option><option value="contact">По наличию контакта</option><option value="region">По региону</option><option value="name">По названию</option></select></label>
           </div>
           <div id="resultsList" class="results-list"></div>
@@ -96,12 +100,15 @@
     <footer class="footer"><span>FoodSource / product discovery prototype</span><span>Сделано для тестового задания · 2026</span></footer>
   </div>
 
+  <button class="filter-backdrop" id="filterBackdrop" type="button" aria-label="Закрыть фильтры"></button>
+  <button class="search-toast liquid-glass hidden" id="searchToast" type="button"><span class="live-dot"></span><strong id="searchToastText">Выдача обновлена</strong><span>Смотреть →</span></button>
+  <div class="modal-backdrop hidden" id="contactModal"><div class="modal contact-modal liquid-glass" role="dialog" aria-modal="true" aria-labelledby="contactTitle"><button class="modal-close" data-close-modal aria-label="Закрыть">×</button><div id="contactContent"></div></div></div>
   <div class="modal-backdrop hidden" id="detailModal"><div class="modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div id="detailContent"></div></div></div>
   <div class="modal-backdrop hidden" id="compareModal"><div class="modal compare-modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div class="modal-eyebrow">SHORTLIST · <span id="compareModalCount">0</span> поставщика</div><h2>Сравнение условий</h2><div id="compareContent"></div></div></div>
   <div class="modal-backdrop hidden" id="qualityModal"><div class="modal compare-modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div class="modal-eyebrow">SOURCE AUDIT</div><h2>Качество данных</h2><div id="qualityContent"></div></div></div>
   <button class="compare-dock hidden" id="compareDock"><span><b id="dockCount">0</b> поставщика в сравнении</span><span>Открыть сравнение →</span></button>
   <!-- Versioned URLs prevent GitHub Pages/CDN from serving an older bundle after a deploy. -->
-  <script src="config.js?v=20261021c"></script>
-  <script src="app.js?v=20261021c"></script>
+  <script src="config.js?v=20261021e"></script>
+  <script src="app.js?v=20261021k"></script>
 </body>
 </html>
