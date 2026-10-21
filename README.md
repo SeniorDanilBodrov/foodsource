@@ -105,20 +105,20 @@ FoodSource превращает это в законченный закупоч�
 
 ```mermaid
 flowchart LR
-    U[Пользователь] --> UI[GitHub Pages<br/>HTML · CSS · JavaScript]
-    UI -->|REST / JSON| API[FastAPI · Render]
-    UI -. fallback .-> SEED[Seed-каталог<br/>30 поставщиков]
+    U[Пользователь] --> UI[GitHub Pages]
+    UI -->|REST| API[FastAPI]
+    UI -. fallback .-> SEED[Seed-каталог]
 
-    API --> SEARCH[Hybrid Search]
+    API --> SEARCH[Поиск]
     API --> DB[(SQLite)]
-    API --> COLLECTOR[Public-source collector]
-    API --> FILES[CSV / XLSX]
+    API --> COLLECTOR[Сборщик]
+    API --> FILES[CSV и XLSX]
 
-    SEARCH --> RULES[Словарь · RapidFuzz<br/>pymorphy3 · guardrails]
-    SEARCH --> ONNX[rubert-tiny2 INT8<br/>ONNX Runtime]
+    SEARCH --> RULES[Правила]
+    SEARCH --> ONNX[rubert-tiny2]
 
-    COLLECTOR --> SOURCES[data/sources.json]
-    COLLECTOR --> QUALITY[Валидация и<br/>очередь проверки]
+    COLLECTOR --> SOURCES[Allowlist]
+    COLLECTOR --> QUALITY[Контроль]
     QUALITY --> DB
 ```
 
@@ -128,15 +128,15 @@ Frontend и backend развёрнуты раздельно. Статическ�
 
 ```mermaid
 flowchart TD
-    Q[Свободный запрос] --> N[Нормализация текста]
-    N --> T[RapidFuzz: исправление опечаток]
-    T --> M[pymorphy3: нормальные формы слов]
-    M --> I[Определение товара, категории,<br/>региона и условий]
-    I --> G{Строгие ограничения<br/>предметной области}
-    G -->|нерелевантный запрос| E[Пустая выдача]
-    G -->|безопасные кандидаты| D[Детерминированная оценка]
-    D --> S[rubert-tiny2 INT8:<br/>семантическое переранжирование]
-    S --> R[Итоговый score + причины совпадения]
+    Q[Запрос] --> N[Нормализация]
+    N --> T[Опечатки]
+    T --> M[Морфология]
+    M --> I[Товар и регион]
+    I --> G{Food-домен?}
+    G -->|Нет| E[Нет результатов]
+    G -->|Да| D[Rule score]
+    D --> S[ONNX ranking]
+    S --> R[Score и причины]
 ```
 
 ### Почему не большая LLM
@@ -155,15 +155,15 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Проверенный URL<br/>из sources.json] --> B{Публичный адрес<br/>и robots.txt}
-    B -->|обход запрещён| C[Проверенная карточка<br/>с прямой ссылкой]
-    B -->|обход разрешён| P[HTML-парсер]
-    P --> F[Извлечение контактов,<br/>адреса и условий]
-    F --> V{Валидация формата<br/>и confidence}
-    V -->|высокая уверенность| DB[(Основная карточка)]
-    V -->|сомнительное изменение| Q[Очередь оператора]
+    A[URL из allowlist] --> B{Доступ разрешён?}
+    B -->|Нет| C[Проверенная карточка]
+    B -->|Да| P[HTML parser]
+    P --> F[Поля поставщика]
+    F --> V{Данные надёжны?}
+    V -->|Да| DB[(SQLite)]
+    V -->|Нет| Q[Очередь проверки]
     Q -->|Принять| DB
-    Q -->|Отклонить| OLD[Сохранить проверенное значение]
+    Q -->|Отклонить| OLD[Старое значение]
 ```
 
 Сборщик:
