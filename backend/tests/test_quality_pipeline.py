@@ -37,6 +37,15 @@ class QualityAssessmentTests(unittest.TestCase):
         self.assertEqual(safe["address"], "Московская область, территория Трио-Инвест, стр. 3")
         self.assertEqual(report["status"], "accepted")
 
+    def test_common_russian_street_abbreviation_is_accepted(self):
+        safe, report = assess_supplier({
+            "name": "Поставщик",
+            "address": "Екатеринбург, ул. Старых Большевиков, 2А/2",
+        })
+
+        self.assertEqual(safe["address"], "Екатеринбург, ул. Старых Большевиков, 2А/2")
+        self.assertEqual(report["status"], "accepted")
+
 
 class SafeUpsertTests(unittest.TestCase):
     def setUp(self):
