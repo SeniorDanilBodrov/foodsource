@@ -7,3 +7,8 @@ services:
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     autoDeploy: true
+    envVars:
+      - key: FOODSOURCE_SEMANTIC
+        value: "1"
+      - key: FOODSOURCE_MODEL_DIR
+        value: /opt/render/project/src/models/rubert-tiny2

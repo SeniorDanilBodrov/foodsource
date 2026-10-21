@@ -1,7 +1,13 @@
 .venv/
 .venv-ai/
 node_modules/
-models/
+models/*
+!models/rubert-tiny2/
+models/rubert-tiny2/*
+!models/rubert-tiny2/config.json
+!models/rubert-tiny2/model.int8.onnx
+!models/rubert-tiny2/README.md
+!models/rubert-tiny2/tokenizer.json
 tmp/
 __pycache__/
 *.pyc

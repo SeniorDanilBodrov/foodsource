@@ -7,3 +7,5 @@ rapidfuzz>=3.10,<4
 pymorphy3>=2.0,<3
 pymorphy3-dicts-ru>=2.4,<3
 openpyxl>=3.1,<4
+onnxruntime>=1.20,<2
+tokenizers>=0.20,<1
