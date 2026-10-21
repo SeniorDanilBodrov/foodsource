@@ -1,9 +1,10 @@
+import asyncio
 import json
 import shutil
 import subprocess
 import sys
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -25,6 +26,43 @@ from .semantic import semantic_engine
 
 app = FastAPI(title="FoodSource API", version="0.1.0", description="Поиск и сбор данных о поставщиках продуктов питания")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+collection_job = {
+    "status": "idle",
+    "started_at": None,
+    "finished_at": None,
+    "result": None,
+    "error": None,
+}
+collection_task: asyncio.Task | None = None
+
+
+def collection_status() -> dict:
+    """Return a JSON-safe snapshot without exposing the asyncio task itself."""
+    return dict(collection_job)
+
+
+async def run_collection_job() -> None:
+    collection_job.update({
+        "status": "running",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
+        "result": None,
+        "error": None,
+    })
+    try:
+        result = await collect_sources()
+        collection_job.update({
+            "status": "completed",
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "result": result,
+        })
+    except Exception as exc:
+        collection_job.update({
+            "status": "failed",
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "error": str(exc),
+        })
 
 
 @app.on_event("startup")
@@ -226,7 +264,17 @@ def delete_demo_suppliers() -> dict:
     return {"deleted": deleted, "total": len(list_suppliers())}
 
 
-@app.post("/api/collect")
+@app.post("/api/collect", status_code=202)
 async def collect() -> dict:
-    """Refresh only the reviewed public URLs listed in data/sources.json."""
-    return await collect_sources()
+    """Start a non-blocking refresh of the reviewed URLs in sources.json."""
+    global collection_task
+    if collection_task is None or collection_task.done():
+        collection_task = asyncio.create_task(run_collection_job())
+        # Give the task one event-loop turn so the returned state is `running`.
+        await asyncio.sleep(0)
+    return collection_status()
+
+
+@app.get("/api/collect/status")
+def collect_status() -> dict:
+    return collection_status()
