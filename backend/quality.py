@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 
 
 PHONE_RE = re.compile(r"^\+?\d[\d\s()\-]{8,}\d$")
+PHONE_IN_TEXT_RE = re.compile(r"\+?\d[\d\s()\-]{8,}\d")
 EMAIL_RE = re.compile(r"^[\w.+-]+@[\w.-]+\.[a-z]{2,}$", re.I)
 ADDRESS_RE = re.compile(
-    r"\b(?:ул(?:ица)?|проспект|пр-т|шоссе|переулок|пер\.|проезд|тракт|"
-    r"набережная|наб\.|площадь|пл\.|бульвар|бул\.|дом|д\.|строение|стр\.|корпус|корп\.)\b",
+    r"(?:^|[\s,])(?:ул(?:ица)?|проспект|пр-т|шоссе|переулок|пер\.|проезд|тракт|"
+    r"набережная|наб\.|площадь|пл\.|бульвар|бул\.|дом|д\.|строение|стр\.|корпус|корп\.)(?=\s|,|\d|$)",
     re.I,
 )
 PRICE_RE = re.compile(r"(?:₽|руб(?:\.|лей)?|\d+[\s,.]*\d*\s*/\s*(?:шт|кг|г|л|мл))", re.I)
@@ -54,9 +55,15 @@ def assess_supplier(item: dict) -> tuple[dict, dict]:
         confidence.setdefault("email", "high")
 
     address = " ".join(str(safe.get("address", "")).split())
+    # Contact blocks often put a phone immediately after the postal address.
+    # Keep the address portion instead of rejecting the entire concatenated line.
+    phone_suffix = PHONE_IN_TEXT_RE.search(address)
+    if phone_suffix:
+        address = address[:phone_suffix.start()].rstrip(" ,;—-")
     if address and (PRICE_RE.search(address) or not ADDRESS_RE.search(address)):
         reject("address", "значение не похоже на почтовый адрес")
     elif address:
+        safe["address"] = address
         confidence.setdefault("address", "high")
 
     description = " ".join(str(safe.get("description", "")).split())

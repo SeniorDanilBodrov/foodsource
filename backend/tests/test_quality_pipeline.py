@@ -28,6 +28,15 @@ class QualityAssessmentTests(unittest.TestCase):
         self.assertEqual(safe["description"], "")
         self.assertEqual(report["status"], "review")
 
+    def test_phone_is_trimmed_from_a_valid_street_address(self):
+        safe, report = assess_supplier({
+            "name": "Поставщик",
+            "address": "Московская область, территория Трио-Инвест, стр. 3 +7 (495) 651-92-52",
+        })
+
+        self.assertEqual(safe["address"], "Московская область, территория Трио-Инвест, стр. 3")
+        self.assertEqual(report["status"], "accepted")
+
 
 class SafeUpsertTests(unittest.TestCase):
     def setUp(self):
