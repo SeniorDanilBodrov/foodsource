@@ -237,8 +237,22 @@ async def parse_supplier(url: str, category: str | None = None, region: str | No
     async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
         if not await robots_allowed(client, url):
             raise ValueError("robots.txt запрещает автоматический сбор с этой страницы")
-        response = await client.get(url)
-        response.raise_for_status()
+        response = None
+        for attempt in range(3):
+            try:
+                response = await client.get(url)
+                response.raise_for_status()
+                break
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError):
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(1.5 * (attempt + 1))
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500 or attempt == 2:
+                    raise
+                await asyncio.sleep(1.5 * (attempt + 1))
+        if response is None:
+            raise RuntimeError("Источник не вернул ответ")
     return parse_supplier_document(
         response.text,
         str(response.url),

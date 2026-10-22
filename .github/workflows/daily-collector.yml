@@ -1,0 +1,38 @@
+name: Daily supplier refresh
+
+on:
+  schedule:
+    - cron: "15 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: foodsource-daily-collector
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wake API and check health
+        run: curl --fail --retry 8 --retry-delay 15 --max-time 90 https://foodsource-api.onrender.com/api/health
+
+      - name: Start reviewed source collection
+        run: curl --fail --max-time 30 --request POST https://foodsource-api.onrender.com/api/collect
+
+      - name: Wait for completion
+        shell: bash
+        run: |
+          for attempt in {1..80}; do
+            response="$(curl --fail --max-time 30 https://foodsource-api.onrender.com/api/collect/status)"
+            echo "$response"
+            if echo "$response" | grep -q '"status":"completed"'; then
+              exit 0
+            fi
+            if echo "$response" | grep -q '"status":"failed"'; then
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Collector did not finish within the workflow timeout"
+          exit 1

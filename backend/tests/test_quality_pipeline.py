@@ -133,6 +133,55 @@ class SafeUpsertTests(unittest.TestCase):
         self.assertEqual(database.list_pending_updates(), [])
 
 
+class SupplierDeduplicationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_db_path = database.DB_PATH
+        database.DB_PATH = Path(self.temp_dir.name) / "dedup.sqlite3"
+        db = sqlite3.connect(database.DB_PATH)
+        try:
+            db.execute("""CREATE TABLE suppliers (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )""")
+            db.commit()
+        finally:
+            db.close()
+
+    def tearDown(self):
+        database.DB_PATH = self.original_db_path
+        self.temp_dir.cleanup()
+
+    @staticmethod
+    def supplier(identifier: str, name: str, source: str, phone: str) -> dict:
+        return {
+            "id": identifier, "name": name, "source": source, "website": source,
+            "categories": ["Бакалея"], "products": ["Мука"], "regions": ["Россия"],
+            "phone": phone, "contact": phone,
+        }
+
+    def test_same_domain_updates_existing_card(self):
+        database.upsert_many([self.supplier("first", "Поставщик", "https://www.example.ru/catalog", "+7 900 000-00-01")])
+        database.upsert_many([self.supplier("second", "Новое название", "https://example.ru/about", "+7 900 000-00-02")])
+
+        items = database.list_suppliers()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], "first")
+        self.assertEqual(items[0]["name"], "Новое название")
+
+    def test_same_phone_does_not_create_duplicate(self):
+        database.upsert_many([self.supplier("first", "Компания Альфа", "https://alpha.ru", "+7 (900) 111-22-33")])
+        database.upsert_many([self.supplier("second", "Компания Альфа Опт", "https://alpha-opt.ru", "8 900 111 22 33")])
+
+        self.assertEqual(len(database.list_suppliers()), 1)
+
+    def test_same_normalized_name_does_not_create_duplicate(self):
+        database.upsert_many([self.supplier("first", "Фуд-Сервис", "https://food-one.ru", "+7 900 000-00-01")])
+        database.upsert_many([self.supplier("second", "Фуд Сервис", "https://food-two.ru", "+7 900 000-00-02")])
+
+        self.assertEqual(len(database.list_suppliers()), 1)
+
+
 class ArchiveSupplierTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

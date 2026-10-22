@@ -14,3 +14,15 @@ services:
         value: /opt/render/project/src/models/rubert-tiny2
       - key: FOODSOURCE_PREWARM
         value: "1"
+      - key: FOODSOURCE_COLLECT_CONCURRENCY
+        value: "4"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: foodsource-db
+          property: connectionString
+
+databases:
+  - name: foodsource-db
+    plan: free
+    databaseName: foodsource
+    user: foodsource

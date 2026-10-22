@@ -352,6 +352,10 @@ def search(items: list[dict], query: str, filters: dict) -> tuple[dict, list[dic
         # A concrete product still requires structured or strong semantic
         # evidence; matching only the city/delivery is never enough.
         if normalized.get("product_terms") and not exact_product:
+            # When at least one card explicitly lists the requested SKU, do not
+            # dilute the result with generic category suppliers.
+            if has_exact_candidate:
+                continue
             # For a concrete SKU ("персики", "форель") a generic HoReCa card
             # is too weak.  Category fallbacks are allowed only when the card
             # itself declares the domain; otherwise we need an exact product.

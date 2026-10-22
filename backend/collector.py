@@ -6,6 +6,7 @@ auditable and safe for a portfolio prototype.
 """
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -66,26 +67,45 @@ async def collect_sources() -> dict:
     # A temporary HTTP error must not make an already reviewed supplier vanish
     # from the catalogue. A successful parse below replaces that base card,
     # because both records use the same stable URL-derived id.
-    items = {item["id"]: item for item in map(reviewed_source_item, sources)}
+    base_items = {item["id"]: item for item in map(reviewed_source_item, sources)}
+    items = dict(base_items)
     automatic, failures, reviewed = [], [], []
-    for index, source in enumerate(sources):
-        try:
-            item = await parse_supplier(source["url"], source["category"], source["region"])
-            item = merge_collected(item, source)
+    concurrency = max(1, min(int(os.getenv("FOODSOURCE_COLLECT_CONCURRENCY", "4")), 8))
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def collect_one(source: dict) -> tuple[str, dict, dict | None]:
+        async with semaphore:
+            try:
+                item = await parse_supplier(source["url"], source["category"], source["region"])
+                return "automatic", source, merge_collected(item, source)
+            except Exception as exc:
+                message = str(exc) or exc.__class__.__name__
+                if "robots.txt" in message:
+                    return "reviewed", source, {"url": source["url"], "reason": message}
+                return "failure", source, {"url": source["url"], "error": message}
+
+    results = await asyncio.gather(*(collect_one(source) for source in sources))
+    for status, source, result in results:
+        if status == "automatic":
+            item = result
             item["collection_mode"] = "automatic"
             items[item["id"]] = item
             automatic.append(item)
-        except Exception as exc:  # The report lets a reviewer see what was skipped and why.
-            message = str(exc)
-            if "robots.txt" in message:
-                reviewed.append({"url": source["url"], "reason": message})
-            else:
-                failures.append({"url": source["url"], "error": message})
-        if index < len(sources) - 1:
-            await asyncio.sleep(2)
-    safe_result = {"imported": 0, "pending_review": 0}
+        elif status == "reviewed":
+            reviewed.append(result)
+        else:
+            failures.append(result)
+    safe_result = {"imported": 0, "archived_skipped": 0, "pending_review": 0}
     if items:
-        safe_result = safe_upsert_many(list(items.values()), source_mode="automatic")
+        automatic_result = safe_upsert_many(automatic, source_mode="automatic")
+        automatic_ids = {item["id"] for item in automatic}
+        fallback_items = [item for key, item in base_items.items() if key not in automatic_ids]
+        reviewed_result = safe_upsert_many(fallback_items, source_mode="reviewed_metadata")
+        safe_result = {
+            "imported": automatic_result["imported"] + reviewed_result["imported"],
+            "archived_skipped": automatic_result.get("archived_skipped", 0) + reviewed_result.get("archived_skipped", 0),
+            "pending_review": automatic_result["pending_review"] + reviewed_result["pending_review"],
+        }
         migrate_legacy_reviewed_cards()
     report = {
         "startedAt": datetime.now(timezone.utc).isoformat(),
@@ -93,6 +113,8 @@ async def collect_sources() -> dict:
         "imported": safe_result["imported"],
         "archived_skipped": safe_result.get("archived_skipped", 0),
         "automatic": len(automatic),
+        "concurrency": concurrency,
+        "needs_attention": len(reviewed) + len(failures) + safe_result["pending_review"],
         "pending_review": safe_result["pending_review"],
         "reviewed_metadata": reviewed,
         "failures": failures,

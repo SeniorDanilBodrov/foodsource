@@ -31,7 +31,7 @@ class HybridSearchTests(unittest.TestCase):
 
     def test_empty_query_is_catalogue_without_fake_percentage(self) -> None:
         normalized, items = search(self.items, "", {})
-        self.assertEqual(len(items), 30)
+        self.assertEqual(len(items), 60)
         self.assertEqual(normalized["search_mode"], "deterministic")
         self.assertTrue(all(item["score"] == 0 for item in items))
 
@@ -88,7 +88,7 @@ class HybridSearchTests(unittest.TestCase):
         self.assertEqual(normalized["category"], "Овощи и фрукты")
         self.assertGreaterEqual(len(items), 1)
         self.assertTrue(all(supplier_declares_category(item, "Овощи и фрукты") for item in items))
-        self.assertTrue(all("точный товар уточнить" in item["reasons"] for item in items))
+        self.assertTrue(all("совпадение по товару" in item["reasons"] for item in items))
 
     def test_packaging_for_peaches_respects_packaging_intent(self) -> None:
         normalized, items = search(self.items, "упаковка для персиков", {})

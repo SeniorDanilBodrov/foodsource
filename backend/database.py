@@ -1,11 +1,20 @@
-"""Small SQLite repository for the prototype. It can later be replaced by PostgreSQL."""
+"""Persistent repository with PostgreSQL support and a local SQLite fallback."""
 import json
+import os
 import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import date
 from hashlib import sha1
 from pathlib import Path
+from urllib.parse import urlparse
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # PostgreSQL is optional during lightweight local tests.
+    psycopg = None
+    dict_row = None
 
 from .models import Supplier
 from .quality import assess_supplier, calculate_completeness, confidence_rank
@@ -18,10 +27,52 @@ PHONE_PATTERN = re.compile(r"\+?\d[\d\s()\-]{8,}\d")
 EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.[a-z]{2,}", re.I)
 
 
+def uses_postgres() -> bool:
+    return bool(os.getenv("DATABASE_URL", "").strip())
+
+
+def storage_status() -> dict:
+    return {
+        "engine": "postgresql" if uses_postgres() else "sqlite",
+        "persistent": uses_postgres(),
+    }
+
+
+class DatabaseSession:
+    """Small DB-API compatibility layer for SQLite and psycopg."""
+
+    def __init__(self, connection, postgres: bool):
+        self.connection = connection
+        self.postgres = postgres
+
+    def execute(self, statement: str, parameters=()):
+        if self.postgres:
+            # Timestamp columns intentionally stay TEXT in both backends so the
+            # API returns one stable JSON shape. PostgreSQL needs an explicit
+            # cast when CURRENT_TIMESTAMP is written into a TEXT column.
+            statement = statement.replace("datetime('now')", "CURRENT_TIMESTAMP::text")
+            statement = statement.replace("?", "%s")
+        return self.connection.execute(statement, parameters)
+
+    def commit(self):
+        self.connection.commit()
+
+    def close(self):
+        self.connection.close()
+
+
 @contextmanager
 def connect():
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if database_url:
+        if psycopg is None:
+            raise RuntimeError("Для DATABASE_URL установите зависимость psycopg")
+        raw_connection = psycopg.connect(database_url, row_factory=dict_row)
+        connection = DatabaseSession(raw_connection, postgres=True)
+    else:
+        raw_connection = sqlite3.connect(DB_PATH)
+        raw_connection.row_factory = sqlite3.Row
+        connection = DatabaseSession(raw_connection, postgres=False)
     try:
         yield connection
     finally:
@@ -40,17 +91,20 @@ def init_db() -> None:
           status TEXT NOT NULL DEFAULT 'new', note TEXT NOT NULL DEFAULT '',
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )""")
-        db.execute("""CREATE TABLE IF NOT EXISTS search_history (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, query_text TEXT NOT NULL,
+        history_id = "BIGSERIAL PRIMARY KEY" if db.postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        pending_id = "BIGSERIAL PRIMARY KEY" if db.postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        now_default = "(CURRENT_TIMESTAMP::text)" if db.postgres else "(datetime('now'))"
+        db.execute(f"""CREATE TABLE IF NOT EXISTS search_history (
+          id {history_id}, query_text TEXT NOT NULL,
           normalized_query TEXT NOT NULL, filters TEXT NOT NULL,
-          results_count INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+          results_count INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT {now_default}
         )""")
-        db.execute("""CREATE TABLE IF NOT EXISTS pending_supplier_updates (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_id TEXT NOT NULL,
-          source_url TEXT NOT NULL DEFAULT '', current_payload TEXT NOT NULL DEFAULT '{}',
+        db.execute(f"""CREATE TABLE IF NOT EXISTS pending_supplier_updates (
+          id {pending_id}, supplier_id TEXT NOT NULL,
+          source_url TEXT NOT NULL DEFAULT '', current_payload TEXT NOT NULL DEFAULT '{{}}',
           candidate_payload TEXT NOT NULL, reasons TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'pending',
-          created_at TEXT NOT NULL DEFAULT (datetime('now')), reviewed_at TEXT
+          created_at TEXT NOT NULL DEFAULT {now_default}, reviewed_at TEXT
         )""")
         db.execute("""CREATE INDEX IF NOT EXISTS idx_pending_supplier_status
           ON pending_supplier_updates(status, supplier_id)""")
@@ -58,13 +112,14 @@ def init_db() -> None:
           id TEXT PRIMARY KEY, payload TEXT NOT NULL, state_payload TEXT NOT NULL DEFAULT '{}',
           archived_at TEXT NOT NULL DEFAULT (datetime('now'))
         )""")
-        should_seed = db.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0] == 0
+        should_seed = db.execute("SELECT COUNT(*) AS count FROM suppliers").fetchone()["count"] == 0
         db.commit()
     if should_seed:
         upsert_many(reviewed_source_seed())
     # Safe id migration for databases created by an earlier collector version.
     migrate_legacy_reviewed_cards()
     backfill_supplier_fields()
+    ensure_source_registry()
 
 
 def normalize_supplier_fields(item: dict) -> dict:
@@ -122,28 +177,97 @@ def reviewed_source_seed() -> list[dict]:
     return items
 
 
+def ensure_source_registry() -> int:
+    """Add newly reviewed sources without downgrading existing collected cards."""
+    reviewed = reviewed_source_seed()
+    with connect() as db:
+        existing_rows = db.execute("SELECT id, payload FROM suppliers").fetchall()
+        archived_rows = db.execute("SELECT id, payload FROM archived_suppliers").fetchall()
+    existing_domains = {
+        canonical_domain(
+            json.loads(row["payload"]).get("source_url")
+            or json.loads(row["payload"]).get("source")
+            or json.loads(row["payload"]).get("website", "")
+        )
+        for row in [*existing_rows, *archived_rows]
+    }
+    existing_ids = {row["id"] for row in [*existing_rows, *archived_rows]}
+    missing = [
+        item for item in reviewed
+        if item["id"] not in existing_ids
+        and canonical_domain(item.get("source") or item.get("website", "")) not in existing_domains
+    ]
+    if missing:
+        upsert_many(missing)
+    return len(missing)
+
+
 def upsert_many(items: list[dict]) -> int:
     with connect() as db:
         # A CSV/XLSX export can be imported back into the service. Reuse the
         # existing card when its source URL is already known instead of
         # creating a visually identical second supplier.
         existing_sources = {}
+        existing_phones = {}
+        existing_names = {}
         for row in db.execute("SELECT id, payload FROM suppliers").fetchall():
             payload = json.loads(row["payload"])
             source = payload.get("source_url") or payload.get("source") or payload.get("website")
             if source:
-                existing_sources[source.rstrip("/")] = row["id"]
+                existing_sources[canonical_domain(source)] = row["id"]
+            phone = canonical_phone(payload.get("phone") or payload.get("contact", ""))
+            if phone:
+                existing_phones[phone] = row["id"]
+            name = canonical_name(payload.get("name", ""))
+            if name:
+                existing_names[name] = row["id"]
         for item in items:
             item = normalize_supplier_fields(item)
             source = item.get("source_url") or item.get("source") or item.get("website")
-            if source and source.rstrip("/") in existing_sources:
-                item["id"] = existing_sources[source.rstrip("/")]
+            source_key = canonical_domain(source)
+            phone_key = canonical_phone(item.get("phone") or item.get("contact", ""))
+            name_key = canonical_name(item.get("name", ""))
+            duplicate_id = (
+                existing_sources.get(source_key)
+                or existing_phones.get(phone_key)
+                or existing_names.get(name_key)
+            )
+            if duplicate_id:
+                item["id"] = duplicate_id
             db.execute(
-                "INSERT OR REPLACE INTO suppliers(id,name,payload,updated_at) VALUES(?,?,?,datetime('now'))",
+                """INSERT INTO suppliers(id,name,payload,updated_at)
+                VALUES(?,?,?,datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET name=excluded.name,
+                payload=excluded.payload, updated_at=excluded.updated_at""",
                 (item["id"], item["name"], json.dumps(item, ensure_ascii=False)),
             )
+            if source_key:
+                existing_sources[source_key] = item["id"]
+            if phone_key:
+                existing_phones[phone_key] = item["id"]
+            if name_key:
+                existing_names[name_key] = item["id"]
         db.commit()
     return len(items)
+
+
+def canonical_domain(value: str) -> str:
+    """Use a stable hostname as the strongest supplier identity."""
+    try:
+        host = (urlparse(str(value or "")).hostname or "").lower()
+    except ValueError:
+        return ""
+    return host.removeprefix("www.")
+
+
+def canonical_phone(value: str) -> str:
+    digits = re.sub(r"\D", "", str(value or ""))
+    return digits[-10:] if len(digits) >= 10 else ""
+
+
+def canonical_name(value: str) -> str:
+    normalized = re.sub(r"[^a-zа-яё0-9]", "", str(value or "").casefold())
+    return normalized if len(normalized) >= 5 else ""
 
 
 PROTECTED_AUTOMATIC_FIELDS = {
@@ -161,7 +285,7 @@ def _queue_review(item: dict, current: dict | None, reasons: list[str]) -> int:
         cursor = db.execute(
             """INSERT INTO pending_supplier_updates
             (supplier_id, source_url, current_payload, candidate_payload, reasons)
-            VALUES(?,?,?,?,?)""",
+            VALUES(?,?,?,?,?) RETURNING id""",
             (
                 item["id"], item.get("source_url") or item.get("source") or item.get("website", ""),
                 json.dumps(current or {}, ensure_ascii=False),
@@ -169,8 +293,10 @@ def _queue_review(item: dict, current: dict | None, reasons: list[str]) -> int:
                 json.dumps(reasons, ensure_ascii=False),
             ),
         )
+        row = cursor.fetchone()
+        cursor.close()
         db.commit()
-        return int(cursor.lastrowid)
+        return int(row["id"])
 
 
 def safe_upsert(item: dict, source_mode: str = "automatic") -> dict:
@@ -349,8 +475,9 @@ def migrate_legacy_reviewed_cards() -> int:
             ).fetchone()
             if legacy_state:
                 db.execute(
-                    """INSERT OR IGNORE INTO supplier_states
-                    (supplier_id, favourite, status, note, updated_at) VALUES(?,?,?,?,?)""",
+                    """INSERT INTO supplier_states
+                    (supplier_id, favourite, status, note, updated_at) VALUES(?,?,?,?,?)
+                    ON CONFLICT(supplier_id) DO NOTHING""",
                     (target_id, legacy_state["favourite"], legacy_state["status"],
                      legacy_state["note"], legacy_state["updated_at"]),
                 )
@@ -379,8 +506,10 @@ def archive_supplier(supplier_id: str) -> dict | None:
         ).fetchone()
         state = dict(state_row) if state_row else {}
         db.execute(
-            """INSERT OR REPLACE INTO archived_suppliers(id, payload, state_payload, archived_at)
-            VALUES(?,?,?,datetime('now'))""",
+            """INSERT INTO archived_suppliers(id, payload, state_payload, archived_at)
+            VALUES(?,?,?,datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,
+            state_payload=excluded.state_payload, archived_at=excluded.archived_at""",
             (supplier_id, row["payload"], json.dumps(state, ensure_ascii=False)),
         )
         db.execute("DELETE FROM supplier_states WHERE supplier_id = ?", (supplier_id,))
@@ -419,14 +548,19 @@ def restore_archived_supplier(supplier_id: str) -> dict | None:
             return None
         item = normalize_supplier_fields(json.loads(row["payload"]))
         db.execute(
-            "INSERT OR REPLACE INTO suppliers(id,name,payload,updated_at) VALUES(?,?,?,datetime('now'))",
+            """INSERT INTO suppliers(id,name,payload,updated_at)
+            VALUES(?,?,?,datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET name=excluded.name,
+            payload=excluded.payload, updated_at=excluded.updated_at""",
             (item["id"], item["name"], json.dumps(item, ensure_ascii=False)),
         )
         state = json.loads(row["state_payload"] or "{}")
         if state:
             db.execute(
-                """INSERT OR REPLACE INTO supplier_states
-                (supplier_id, favourite, status, note, updated_at) VALUES(?,?,?,?,?)""",
+                """INSERT INTO supplier_states
+                (supplier_id, favourite, status, note, updated_at) VALUES(?,?,?,?,?)
+                ON CONFLICT(supplier_id) DO UPDATE SET favourite=excluded.favourite,
+                status=excluded.status, note=excluded.note, updated_at=excluded.updated_at""",
                 (
                     supplier_id, int(bool(state.get("favourite"))), state.get("status", "new"),
                     state.get("note", ""), state.get("updated_at") or date.today().isoformat(),

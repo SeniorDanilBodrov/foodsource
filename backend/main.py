@@ -15,7 +15,8 @@ from .database import (delete_fixture_suppliers, get_state, get_supplier, init_d
                        update_state, upsert_many, safe_upsert,
                        list_pending_updates, resolve_pending_update,
                        archive_supplier, list_archived_suppliers,
-                       restore_archived_supplier, delete_archived_supplier)
+                       restore_archived_supplier, delete_archived_supplier,
+                       storage_status)
 from .importers import parse_import_file
 from .models import (CompareRequest, ExportRequest, ImportFileRequest, ImportRequest,
                      ParseRequest, SearchRequest, SupplierStateUpdate)
@@ -110,6 +111,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "service": "foodsource-api",
+        "storage": storage_status(),
         "search": semantic_engine.status(load=True),
         "query_understanding": {
             "ontology": "foodsource-domain-v1",

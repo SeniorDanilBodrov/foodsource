@@ -1,8 +1,12 @@
 {
-  "startedAt": "2026-10-21T13:20:00.272761+00:00",
-  "attempted": 30,
-  "imported": 30,
-  "automatic": 26,
+  "startedAt": "2026-10-22T18:26:01.038408+00:00",
+  "attempted": 60,
+  "imported": 60,
+  "archived_skipped": 0,
+  "automatic": 53,
+  "concurrency": 4,
+  "needs_attention": 8,
+  "pending_review": 1,
   "reviewed_metadata": [
     {
       "url": "https://uragrotex.ru/",
@@ -15,12 +19,24 @@
     {
       "url": "https://dikoed.ru/horeca/",
       "reason": "robots.txt запрещает автоматический сбор с этой страницы"
+    },
+    {
+      "url": "https://www.fs-trade.ru/",
+      "reason": "robots.txt запрещает автоматический сбор с этой страницы"
+    },
+    {
+      "url": "https://frozenberry.ru/",
+      "reason": "robots.txt запрещает автоматический сбор с этой страницы"
+    },
+    {
+      "url": "https://www.spgroupp.com/",
+      "reason": "robots.txt запрещает автоматический сбор с этой страницы"
     }
   ],
   "failures": [
     {
-      "url": "https://b2b.efko.ru/",
-      "error": ""
+      "url": "https://miratorg.ru/luch/contacts/",
+      "error": "Client error '404 Not Found' for url 'https://miratorg.ru/luch/contacts/'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
     }
   ]
 }
