@@ -35,6 +35,20 @@ class HybridSearchTests(unittest.TestCase):
         self.assertEqual(normalized["search_mode"], "deterministic")
         self.assertTrue(all(item["score"] == 0 for item in items))
 
+    def test_name_sort_uses_natural_russian_catalog_order(self) -> None:
+        samples = [
+            {**self.items[0], "id": "latin", "name": "EvroFresh"},
+            {**self.items[0], "id": "cyr-b", "name": "Восток-Запад"},
+            {**self.items[0], "id": "number", "name": "4 Овощебаза"},
+            {**self.items[0], "id": "cyr-a", "name": "Агросервис"},
+        ]
+        _, items = search(samples, "", {"sort": "name"})
+
+        self.assertEqual(
+            [item["name"] for item in items],
+            ["4 Овощебаза", "Агросервис", "Восток-Запад", "EvroFresh"],
+        )
+
     def test_semantic_packaging_query_finds_packaging_supplier(self) -> None:
         _, items = search(self.items, "пластиковые боксы для еды", {})
         self.assertGreaterEqual(len(items), 1)

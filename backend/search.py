@@ -266,6 +266,25 @@ def missing_fields(supplier: dict) -> list[str]:
     return [label for field, label in REQUIRED_FIELDS.items() if not is_known(supplier.get(field))]
 
 
+def russian_name_sort_key(value: str) -> tuple:
+    """Natural catalog order: numbers, Cyrillic names, then Latin names."""
+    text = str(value or "").strip().casefold()
+    first = next((char for char in text if char.isalnum()), "")
+    if first.isdigit():
+        alphabet_rank = 0
+    elif "а" <= first <= "я" or first == "ё":
+        alphabet_rank = 1
+    elif "a" <= first <= "z":
+        alphabet_rank = 2
+    else:
+        alphabet_rank = 3
+    chunks = tuple(
+        (0, int(chunk)) if chunk.isdigit() else (1, chunk)
+        for chunk in re.findall(r"\d+|\D+", text)
+    )
+    return alphabet_rank, chunks
+
+
 def search(items: list[dict], query: str, filters: dict) -> tuple[dict, list[dict]]:
     normalized = normalize_query(query)
     candidates = []
@@ -356,7 +375,7 @@ def search(items: list[dict], query: str, filters: dict) -> tuple[dict, list[dic
         })
     sort = filters.get("sort", "match")
     if sort == "completeness": result.sort(key=lambda item: item.get("completeness", 0), reverse=True)
-    elif sort == "name": result.sort(key=lambda item: item.get("name", "").lower())
+    elif sort == "name": result.sort(key=lambda item: russian_name_sort_key(item.get("name", "")))
     elif sort == "region": result.sort(key=lambda item: item.get("city", "").lower())
     elif sort == "contact": result.sort(key=lambda item: not is_known(item.get("contact")))
     else: result.sort(key=lambda item: item["score"], reverse=True)
