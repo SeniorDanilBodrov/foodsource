@@ -444,7 +444,9 @@ def list_suppliers() -> list[dict]:
 def delete_fixture_suppliers() -> int:
     """Delete the original portfolio-only records (ids prefixed with sup-)."""
     with connect() as db:
-        result = db.execute("DELETE FROM suppliers WHERE id LIKE 'sup-%'")
+        # Keep wildcard patterns in parameters: psycopg treats a literal ``%``
+        # in a query string as placeholder syntax, while SQLite does not.
+        result = db.execute("DELETE FROM suppliers WHERE id LIKE ?", ("sup-%",))
         db.commit()
     return result.rowcount
 
@@ -459,7 +461,7 @@ def migrate_legacy_reviewed_cards() -> int:
     migrated = 0
     with connect() as db:
         legacy_rows = db.execute(
-            "SELECT id, payload FROM suppliers WHERE id LIKE 'reviewed-%'"
+            "SELECT id, payload FROM suppliers WHERE id LIKE ?", ("reviewed-%",)
         ).fetchall()
         for row in legacy_rows:
             source = json.loads(row["payload"]).get("source", "")
