@@ -75,6 +75,10 @@ class SafeUpsertTests(unittest.TestCase):
               status TEXT NOT NULL DEFAULT 'pending',
               created_at TEXT NOT NULL DEFAULT (datetime('now')), reviewed_at TEXT
             )""")
+            db.execute("""CREATE TABLE archived_suppliers (
+              id TEXT PRIMARY KEY, payload TEXT NOT NULL, state_payload TEXT NOT NULL DEFAULT '{}',
+              archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )""")
             db.commit()
         finally:
             db.close()
@@ -127,6 +131,74 @@ class SafeUpsertTests(unittest.TestCase):
         self.assertEqual(rejected["status"], "rejected")
         self.assertEqual(database.list_suppliers()[0]["description"], "Описание после ручной проверки")
         self.assertEqual(database.list_pending_updates(), [])
+
+
+class ArchiveSupplierTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_db_path = database.DB_PATH
+        database.DB_PATH = Path(self.temp_dir.name) / "archive.sqlite3"
+        db = sqlite3.connect(database.DB_PATH)
+        try:
+            db.execute("""CREATE TABLE suppliers (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )""")
+            db.execute("""CREATE TABLE supplier_states (
+              supplier_id TEXT PRIMARY KEY, favourite INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'new', note TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )""")
+            db.execute("""CREATE TABLE pending_supplier_updates (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_id TEXT NOT NULL,
+              source_url TEXT NOT NULL DEFAULT '', current_payload TEXT NOT NULL DEFAULT '{}',
+              candidate_payload TEXT NOT NULL, reasons TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'pending',
+              created_at TEXT NOT NULL DEFAULT (datetime('now')), reviewed_at TEXT
+            )""")
+            db.execute("""CREATE TABLE archived_suppliers (
+              id TEXT PRIMARY KEY, payload TEXT NOT NULL, state_payload TEXT NOT NULL DEFAULT '{}',
+              archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )""")
+            db.commit()
+        finally:
+            db.close()
+
+    def tearDown(self):
+        database.DB_PATH = self.original_db_path
+        self.temp_dir.cleanup()
+
+    @staticmethod
+    def supplier(mode: str = "manual_parse") -> dict:
+        return {
+            "id": "web-archive", "name": "Архивируемый поставщик",
+            "categories": ["Бакалея"], "products": ["Мука"], "regions": ["Россия"],
+            "source": "https://supplier.example", "website": "https://supplier.example",
+            "collection_mode": mode,
+        }
+
+    def test_archive_and_restore_preserve_supplier(self):
+        database.upsert_many([self.supplier()])
+        database.update_state("web-archive", {"favourite": True, "status": "check", "note": "Позвонить"})
+
+        archived = database.archive_supplier("web-archive")
+        self.assertEqual(database.list_suppliers(), [])
+        self.assertEqual(len(database.list_archived_suppliers()), 1)
+        self.assertTrue(archived["can_delete"])
+
+        restored = database.restore_archived_supplier("web-archive")
+        self.assertEqual(restored["name"], "Архивируемый поставщик")
+        self.assertEqual(database.get_state("web-archive")["note"], "Позвонить")
+        self.assertEqual(database.list_archived_suppliers(), [])
+
+    def test_catalog_card_cannot_be_permanently_deleted(self):
+        database.upsert_many([self.supplier("automatic")])
+        database.archive_supplier("web-archive")
+
+        with self.assertRaises(ValueError):
+            database.delete_archived_supplier("web-archive")
+
+        self.assertEqual(len(database.list_archived_suppliers()), 1)
 
 
 if __name__ == "__main__":

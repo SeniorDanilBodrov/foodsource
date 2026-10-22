@@ -13,7 +13,9 @@ from .database import (delete_fixture_suppliers, get_state, get_supplier, init_d
                        list_categories, list_states, list_suppliers, list_types,
                        list_search_history, clear_search_history, record_search,
                        update_state, upsert_many, safe_upsert,
-                       list_pending_updates, resolve_pending_update)
+                       list_pending_updates, resolve_pending_update,
+                       archive_supplier, list_archived_suppliers,
+                       restore_archived_supplier, delete_archived_supplier)
 from .importers import parse_import_file
 from .models import (CompareRequest, ExportRequest, ImportFileRequest, ImportRequest,
                      ParseRequest, SearchRequest, SupplierStateUpdate)
@@ -131,6 +133,39 @@ def supplier(supplier_id: str) -> dict:
     if not item:
         raise HTTPException(status_code=404, detail="Поставщик не найден")
     return {"item": item, "state": get_state(supplier_id), "missing_fields": missing_fields(item)}
+
+
+@app.get("/api/archive")
+def archived_suppliers() -> dict:
+    items = list_archived_suppliers()
+    return {"items": items, "count": len(items)}
+
+
+@app.post("/api/suppliers/{supplier_id}/archive")
+def archive_supplier_card(supplier_id: str) -> dict:
+    result = archive_supplier(supplier_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Поставщик не найден")
+    return result
+
+
+@app.post("/api/archive/{supplier_id}/restore")
+def restore_supplier_card(supplier_id: str) -> dict:
+    item = restore_archived_supplier(supplier_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Карточка не найдена в архиве")
+    return {"item": item}
+
+
+@app.delete("/api/archive/{supplier_id}")
+def delete_supplier_card(supplier_id: str) -> dict:
+    try:
+        item = delete_archived_supplier(supplier_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if not item:
+        raise HTTPException(status_code=404, detail="Карточка не найдена в архиве")
+    return {"deleted": True, "id": supplier_id, "name": item.get("name", "")}
 
 
 @app.post("/api/search")

@@ -90,7 +90,8 @@ async def collect_sources() -> dict:
     report = {
         "startedAt": datetime.now(timezone.utc).isoformat(),
         "attempted": len(sources),
-        "imported": len(items),
+        "imported": safe_result["imported"],
+        "archived_skipped": safe_result.get("archived_skipped", 0),
         "automatic": len(automatic),
         "pending_review": safe_result["pending_review"],
         "reviewed_metadata": reviewed,

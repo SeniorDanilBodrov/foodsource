@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261021g" />
+  <link rel="stylesheet" href="styles.css?v=20261022h" />
 </head>
 <body>
   <div class="app-shell">
@@ -18,7 +18,7 @@
         <span class="brand-mark"><i></i><i></i><i></i></span>
         <span>food<span>source</span></span>
       </a>
-      <nav class="topnav"><a href="#results">Поставщики</a><a href="pipeline.html">Моя работа</a><button class="nav-button" id="qualityBtn">Качество данных</button><a href="#how-it-works">Как работает</a></nav>
+      <nav class="topnav"><a href="#results">Поставщики</a><a href="pipeline.html">Моя работа</a><button class="nav-button" id="qualityBtn">Качество данных</button><button class="nav-button" id="archiveBtn">Архив</button><a href="#how-it-works">Как работает</a></nav>
       <a class="workflow-shortcut" href="pipeline.html">В работе →</a>
       <button class="workflow-shortcut mobile-quality-shortcut" id="mobileQualityBtn" type="button">Качество</button>
       <button class="button button-ghost" id="exportBtn">Экспорт XLSX <span>↗</span></button>
@@ -106,9 +106,10 @@
   <div class="modal-backdrop hidden" id="detailModal"><div class="modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div id="detailContent"></div></div></div>
   <div class="modal-backdrop hidden" id="compareModal"><div class="modal compare-modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div class="modal-eyebrow">SHORTLIST · <span id="compareModalCount">0</span> поставщика</div><h2>Сравнение условий</h2><div id="compareContent"></div></div></div>
   <div class="modal-backdrop hidden" id="qualityModal"><div class="modal compare-modal" role="dialog" aria-modal="true"><button class="modal-close" data-close-modal>×</button><div class="modal-eyebrow">SOURCE AUDIT</div><h2>Качество данных</h2><div id="qualityContent"></div></div></div>
+  <div class="modal-backdrop hidden" id="archiveModal"><div class="modal compare-modal" role="dialog" aria-modal="true" aria-labelledby="archiveTitle"><button class="modal-close" data-close-modal>×</button><div class="modal-eyebrow">RECOVERABLE STORAGE</div><h2 id="archiveTitle">Архив поставщиков</h2><p class="archive-intro">Карточки исключены из поиска, но их можно восстановить. Окончательное удаление доступно только для добавленных вручную записей.</p><div id="archiveContent"></div></div></div>
   <button class="compare-dock hidden" id="compareDock"><span><b id="dockCount">0</b> поставщика в сравнении</span><span>Открыть сравнение →</span></button>
   <!-- Versioned URLs prevent GitHub Pages/CDN from serving an older bundle after a deploy. -->
   <script src="config.js?v=20261021e"></script>
-  <script src="app.js?v=20261022b"></script>
+  <script src="app.js?v=20261022c"></script>
 </body>
 </html>

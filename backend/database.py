@@ -54,6 +54,10 @@ def init_db() -> None:
         )""")
         db.execute("""CREATE INDEX IF NOT EXISTS idx_pending_supplier_status
           ON pending_supplier_updates(status, supplier_id)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS archived_suppliers (
+          id TEXT PRIMARY KEY, payload TEXT NOT NULL, state_payload TEXT NOT NULL DEFAULT '{}',
+          archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""")
         should_seed = db.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0] == 0
         db.commit()
     if should_seed:
@@ -172,6 +176,16 @@ def _queue_review(item: dict, current: dict | None, reasons: list[str]) -> int:
 def safe_upsert(item: dict, source_mode: str = "automatic") -> dict:
     """Apply validated fields and quarantine uncertain destructive changes."""
     original = normalize_supplier_fields(item)
+    with connect() as db:
+        archived = db.execute(
+            "SELECT payload FROM archived_suppliers WHERE id = ?", (original["id"],)
+        ).fetchone()
+    if archived:
+        archived_item = normalize_supplier_fields(json.loads(archived["payload"]))
+        return {
+            "item": archived_item, "review_required": False, "review_id": None,
+            "warnings": [], "archived": True,
+        }
     safe, report = assess_supplier(original)
     source = safe.get("source_url") or safe.get("source") or safe.get("website", "")
     current = None
@@ -230,7 +244,8 @@ def safe_upsert(item: dict, source_mode: str = "automatic") -> dict:
 def safe_upsert_many(items: list[dict], source_mode: str = "automatic") -> dict:
     results = [safe_upsert(item, source_mode=source_mode) for item in items]
     return {
-        "imported": len(results),
+        "imported": sum(not result.get("archived", False) for result in results),
+        "archived_skipped": sum(result.get("archived", False) for result in results),
         "pending_review": sum(result["review_required"] for result in results),
         "results": results,
     }
@@ -350,6 +365,90 @@ def get_supplier(supplier_id: str) -> dict | None:
     with connect() as db:
         row = db.execute("SELECT payload FROM suppliers WHERE id = ?", (supplier_id,)).fetchone()
     return normalize_supplier_fields(json.loads(row["payload"])) if row else None
+
+
+def archive_supplier(supplier_id: str) -> dict | None:
+    """Move a supplier out of the catalogue while keeping it recoverable."""
+    with connect() as db:
+        row = db.execute("SELECT payload FROM suppliers WHERE id = ?", (supplier_id,)).fetchone()
+        if not row:
+            return None
+        state_row = db.execute(
+            "SELECT favourite, status, note, updated_at FROM supplier_states WHERE supplier_id = ?",
+            (supplier_id,),
+        ).fetchone()
+        state = dict(state_row) if state_row else {}
+        db.execute(
+            """INSERT OR REPLACE INTO archived_suppliers(id, payload, state_payload, archived_at)
+            VALUES(?,?,?,datetime('now'))""",
+            (supplier_id, row["payload"], json.dumps(state, ensure_ascii=False)),
+        )
+        db.execute("DELETE FROM supplier_states WHERE supplier_id = ?", (supplier_id,))
+        db.execute("DELETE FROM pending_supplier_updates WHERE supplier_id = ?", (supplier_id,))
+        db.execute("DELETE FROM suppliers WHERE id = ?", (supplier_id,))
+        archived_at = db.execute(
+            "SELECT archived_at FROM archived_suppliers WHERE id = ?", (supplier_id,)
+        ).fetchone()["archived_at"]
+        db.commit()
+    item = normalize_supplier_fields(json.loads(row["payload"]))
+    return {"item": item, "archived_at": archived_at, "can_delete": item.get("collection_mode") in {"manual_parse", "operator_import"}}
+
+
+def list_archived_suppliers() -> list[dict]:
+    with connect() as db:
+        rows = db.execute(
+            "SELECT id, payload, archived_at FROM archived_suppliers ORDER BY archived_at DESC"
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = normalize_supplier_fields(json.loads(row["payload"]))
+        result.append({
+            "item": item,
+            "archived_at": row["archived_at"],
+            "can_delete": item.get("collection_mode") in {"manual_parse", "operator_import"},
+        })
+    return result
+
+
+def restore_archived_supplier(supplier_id: str) -> dict | None:
+    with connect() as db:
+        row = db.execute(
+            "SELECT payload, state_payload FROM archived_suppliers WHERE id = ?", (supplier_id,)
+        ).fetchone()
+        if not row:
+            return None
+        item = normalize_supplier_fields(json.loads(row["payload"]))
+        db.execute(
+            "INSERT OR REPLACE INTO suppliers(id,name,payload,updated_at) VALUES(?,?,?,datetime('now'))",
+            (item["id"], item["name"], json.dumps(item, ensure_ascii=False)),
+        )
+        state = json.loads(row["state_payload"] or "{}")
+        if state:
+            db.execute(
+                """INSERT OR REPLACE INTO supplier_states
+                (supplier_id, favourite, status, note, updated_at) VALUES(?,?,?,?,?)""",
+                (
+                    supplier_id, int(bool(state.get("favourite"))), state.get("status", "new"),
+                    state.get("note", ""), state.get("updated_at") or date.today().isoformat(),
+                ),
+            )
+        db.execute("DELETE FROM archived_suppliers WHERE id = ?", (supplier_id,))
+        db.commit()
+    return item
+
+
+def delete_archived_supplier(supplier_id: str) -> dict | None:
+    """Permanently delete only cards created by a manual parse or operator import."""
+    with connect() as db:
+        row = db.execute("SELECT payload FROM archived_suppliers WHERE id = ?", (supplier_id,)).fetchone()
+        if not row:
+            return None
+        item = normalize_supplier_fields(json.loads(row["payload"]))
+        if item.get("collection_mode") not in {"manual_parse", "operator_import"}:
+            raise ValueError("Окончательно удалить можно только вручную добавленную карточку")
+        db.execute("DELETE FROM archived_suppliers WHERE id = ?", (supplier_id,))
+        db.commit()
+    return item
 
 
 def list_categories() -> list[str]:
