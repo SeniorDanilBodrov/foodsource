@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261022h" />
+  <link rel="stylesheet" href="styles.css?v=20261022i" />
 </head>
 <body>
   <div class="app-shell">
@@ -32,6 +32,9 @@
         <form class="searchbar" id="searchForm">
           <span class="search-icon">⌕</span>
           <input id="queryInput" type="search" autocomplete="off" placeholder="Например: куриная грудка от 50 кг, Екатеринбург" />
+          <button class="search-clear hidden" id="searchClearButton" type="button" aria-label="Очистить поисковый запрос" title="Очистить запрос">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" /></svg>
+          </button>
           <button class="button button-primary" type="submit">Найти поставщиков <span>→</span></button>
         </form>
         <div class="examples"><span>Попробуйте:</span><button data-example="овощи и зелень, Екатеринбург">овощи · Екатеринбург</button><button data-example="упаковка для доставки, Москва">упаковка · Москва</button><button data-example="лосось с доставкой">лосось · доставка</button></div>
@@ -110,6 +113,6 @@
   <button class="compare-dock hidden" id="compareDock"><span><b id="dockCount">0</b> поставщика в сравнении</span><span>Открыть сравнение →</span></button>
   <!-- Versioned URLs prevent GitHub Pages/CDN from serving an older bundle after a deploy. -->
   <script src="config.js?v=20261021e"></script>
-  <script src="app.js?v=20261022c"></script>
+  <script src="app.js?v=20261022d"></script>
 </body>
 </html>
