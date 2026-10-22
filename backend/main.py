@@ -33,6 +33,8 @@ collection_job = {
     "error": None,
 }
 collection_task: asyncio.Task | None = None
+parse_jobs: dict[str, dict] = {}
+parse_tasks: dict[str, asyncio.Task] = {}
 
 
 def collection_status() -> dict:
@@ -61,6 +63,37 @@ async def run_collection_job() -> None:
             "finished_at": datetime.now(timezone.utc).isoformat(),
             "error": str(exc),
         })
+
+
+def parse_job_status(job_id: str) -> dict:
+    job = parse_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Задача парсинга не найдена")
+    return dict(job)
+
+
+async def run_parse_job(job_id: str, request: ParseRequest) -> None:
+    job = parse_jobs[job_id]
+    job.update({"status": "running", "started_at": datetime.now(timezone.utc).isoformat()})
+    try:
+        item = await parse_supplier(str(request.url), request.category, request.region)
+        job.update({
+            "status": "completed",
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "result": safe_upsert(item, source_mode="manual_parse"),
+        })
+    except Exception as exc:
+        job.update({
+            "status": "failed",
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "error": f"Не удалось разобрать страницу: {exc}",
+        })
+    finally:
+        # Keep recent results available for polling, but bound process memory.
+        completed = [key for key, value in parse_jobs.items() if value["status"] in {"completed", "failed"}]
+        for old_id in completed[:-20]:
+            parse_jobs.pop(old_id, None)
+            parse_tasks.pop(old_id, None)
 
 
 @app.on_event("startup")
@@ -225,13 +258,21 @@ def reject_pending_update(review_id: int) -> dict:
     return result
 
 
-@app.post("/api/parse")
+@app.post("/api/parse", status_code=202)
 async def parse(request: ParseRequest) -> dict:
-    try:
-        item = await parse_supplier(str(request.url), request.category, request.region)
-        return safe_upsert(item, source_mode="manual_parse")
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Не удалось разобрать страницу: {exc}") from exc
+    job_id = uuid.uuid4().hex
+    parse_jobs[job_id] = {
+        "id": job_id, "status": "queued", "started_at": None,
+        "finished_at": None, "result": None, "error": None,
+    }
+    parse_tasks[job_id] = asyncio.create_task(run_parse_job(job_id, request))
+    await asyncio.sleep(0)
+    return parse_job_status(job_id)
+
+
+@app.get("/api/parse/status/{job_id}")
+def parse_status(job_id: str) -> dict:
+    return parse_job_status(job_id)
 
 
 @app.post("/api/import")

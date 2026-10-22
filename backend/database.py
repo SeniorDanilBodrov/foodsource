@@ -8,7 +8,7 @@ from hashlib import sha1
 from pathlib import Path
 
 from .models import Supplier
-from .quality import assess_supplier, confidence_rank
+from .quality import assess_supplier, calculate_completeness, confidence_rank
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "foodsource.sqlite3"
@@ -84,6 +84,7 @@ def normalize_supplier_fields(item: dict) -> dict:
     result.setdefault("phone", "")
     result.setdefault("email", "")
     result.setdefault("address", "")
+    result["completeness"] = calculate_completeness(result)
     return result
 
 
@@ -296,7 +297,7 @@ def backfill_supplier_fields() -> int:
 def list_suppliers() -> list[dict]:
     with connect() as db:
         rows = db.execute("SELECT payload FROM suppliers ORDER BY name").fetchall()
-    return [json.loads(row["payload"]) for row in rows]
+    return [normalize_supplier_fields(json.loads(row["payload"])) for row in rows]
 
 
 def delete_fixture_suppliers() -> int:
@@ -348,7 +349,7 @@ def migrate_legacy_reviewed_cards() -> int:
 def get_supplier(supplier_id: str) -> dict | None:
     with connect() as db:
         row = db.execute("SELECT payload FROM suppliers WHERE id = ?", (supplier_id,)).fetchone()
-    return json.loads(row["payload"]) if row else None
+    return normalize_supplier_fields(json.loads(row["payload"])) if row else None
 
 
 def list_categories() -> list[str]:

@@ -4,10 +4,20 @@ import unittest
 from pathlib import Path
 
 from backend import database
-from backend.quality import assess_supplier
+from backend.quality import assess_supplier, calculate_completeness
 
 
 class QualityAssessmentTests(unittest.TestCase):
+    def test_completeness_is_derived_from_actual_fields(self):
+        sparse = {"name": "Поставщик", "categories": ["Бакалея"], "minimumOrder": "Не указано"}
+        detailed = {
+            **sparse, "description": "Оптовая поставка продуктов", "products": ["Мука"],
+            "regions": ["Россия"], "phone": "+7 999 000-00-00", "delivery": "По России",
+        }
+
+        self.assertEqual(calculate_completeness(sparse), 20)
+        self.assertGreater(calculate_completeness(detailed), calculate_completeness(sparse))
+
     def test_price_fragment_cannot_be_published_as_address(self):
         safe, report = assess_supplier({
             "name": "Лента PRO",

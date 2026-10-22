@@ -19,6 +19,38 @@ NOISY_DESCRIPTION_RE = re.compile(
     re.I,
 )
 
+UNKNOWN_VALUES = {
+    "", "не указано", "по запросу", "уточнить", "уточнить у поставщика", "не найдено",
+}
+
+
+def _known(value: object) -> bool:
+    if isinstance(value, (list, tuple, set)):
+        return bool(value)
+    return str(value or "").strip().lower() not in UNKNOWN_VALUES
+
+
+def calculate_completeness(item: dict) -> int:
+    """Calculate one deterministic completeness score for API and imported data.
+
+    The score is derived from the currently available fields, so old values saved
+    in SQLite cannot make every card display the same historical percentage.
+    """
+    checks = (
+        (10, _known(item.get("name"))),
+        (10, _known(item.get("description"))),
+        (10, _known(item.get("categories"))),
+        (15, _known(item.get("products"))),
+        (10, _known(item.get("regions"))),
+        (15, any(_known(item.get(field)) for field in ("phone", "email", "contact"))),
+        (5, _known(item.get("address"))),
+        (5, _known(item.get("minimumOrder"))),
+        (5, _known(item.get("priceRange"))),
+        (10, _known(item.get("delivery"))),
+        (5, _known(item.get("certificates"))),
+    )
+    return sum(weight for weight, present in checks if present)
+
 
 def confidence_rank(value: str) -> int:
     return {"low": 1, "medium": 2, "high": 3}.get(value, 1)
